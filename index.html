@@ -69,6 +69,18 @@
     .termBand { fill: rgba(255,255,255,.02); }
     .termLabel { font-size: 12px; fill: rgba(232,238,255,.85); }
     .nodeShadow { filter: url(#nodeShadow); }
+    .graphWrap.fullscreen {
+      position: fixed;
+      inset: 16px;
+      height: calc(100vh - 32px);
+      z-index: 20;
+      background: #0b1020;
+      box-shadow: 0 12px 40px rgba(0,0,0,.45);
+    }
+    .graphWrap.fullscreen svg {
+      width: 100%;
+      height: 100%;
+    }
   </style>
 </head>
 <body>
@@ -108,6 +120,7 @@
             <button id="loadStateBtn">Cargar state.json</button>
             <button id="reset">Reset progreso</button>
             <button id="export">Export JSON</button>
+            <button id="saveState">Guardar progreso</button>
           </div>
         </div>
       </div>
@@ -141,6 +154,7 @@
           <button id="zoomIn">Zoom +</button>
           <button id="zoomOut">Zoom -</button>
           <button id="zoomReset">Reset zoom</button>
+          <button id="toggleFullscreen">Pantalla completa</button>
           <label class="pill">
             <input id="focusToggle" type="checkbox" />
             Enfocar selección
@@ -787,6 +801,22 @@
     alert("Copiado al portapapeles: {plan, state}");
   }
 
+  function downloadJson(filename, data){
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function saveProgress(){
+    saveState(state);
+    downloadJson("state.json", state);
+    alert("Progreso guardado ✅ (state.json)");
+  }
+
   function renderAll(){
     setCounts();
     renderList();
@@ -814,6 +844,11 @@
     applyZoom();
   });
   $("focusToggle").addEventListener("change", updateGraphFocus);
+  $("toggleFullscreen").addEventListener("click", () => {
+    const wrap = document.querySelector(".graphWrap");
+    const isFull = wrap.classList.toggle("fullscreen");
+    $("toggleFullscreen").textContent = isFull ? "Salir pantalla completa" : "Pantalla completa";
+  });
 
   $("reset").addEventListener("click", () => {
     if (!confirm("¿Resetear todos los estados a Pendiente?")) return;
@@ -823,6 +858,7 @@
   });
 
   $("export").addEventListener("click", exportJson);
+  $("saveState").addEventListener("click", saveProgress);
 
   $("pasteLoad").addEventListener("click", () => {
     const txt = $("planEditor").value.trim();
