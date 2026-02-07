@@ -59,6 +59,11 @@
     .edge.bad { stroke: rgba(255,120,140,.45); }
     .legend { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
     .legend span { font-size:12px; opacity:.85; }
+    .graphControls { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; align-items:center; }
+    .graphInfo { font-size:12px; opacity:.85; }
+    .graphInfo strong { font-weight:650; }
+    .node.dim rect, .edge.dim { opacity:.18; }
+    .node.selected rect { stroke: rgba(120,190,255,.9); stroke-width: 2.4; }
   </style>
 </head>
 <body>
@@ -127,6 +132,16 @@
       </div>
 
       <div id="graphView" class="view">
+        <div class="graphControls">
+          <button id="zoomIn">Zoom +</button>
+          <button id="zoomOut">Zoom -</button>
+          <button id="zoomReset">Reset zoom</button>
+          <label class="pill">
+            <input id="focusToggle" type="checkbox" />
+            Enfocar selección
+          </label>
+          <div class="graphInfo" id="graphInfo">Seleccioná una materia para ver su camino.</div>
+        </div>
         <div class="row" style="margin-bottom:10px">
           <span class="pill ok">Aprobada</span>
           <span class="pill warn">Cursando</span>
@@ -135,7 +150,9 @@
           <span class="pill">Electivas siempre habilitadas</span>
         </div>
         <div class="graphWrap">
-          <svg id="graph" width="1400" height="900" viewBox="0 0 1400 900"></svg>
+          <svg id="graph" width="1400" height="900" viewBox="0 0 1400 900">
+            <g id="graphInner"></g>
+          </svg>
         </div>
         <div class="legend">
           <span>Tip: clic en un nodo = lo busca en la lista.</span>
@@ -207,6 +224,9 @@
 
   let plan = [];
   let state = {};
+  let selectedId = null;
+  let zoomLevel = 1;
+  let graphIndex = { reqMap: new Map(), nextMap: new Map() };
 
   function ensureState(plan, previousState){
     const st = {};
@@ -398,6 +418,78 @@
     }
   }
 
+  function buildGraphIndex(){
+    const reqMap = new Map();
+    const nextMap = new Map();
+    for (const s of plan){
+      reqMap.set(s.id, new Set(s.req || []));
+      if (!nextMap.has(s.id)) nextMap.set(s.id, new Set());
+    }
+    for (const s of plan){
+      for (const r of s.req || []){
+        if (!nextMap.has(r)) nextMap.set(r, new Set());
+        nextMap.get(r).add(s.id);
+      }
+    }
+    graphIndex = { reqMap, nextMap };
+  }
+
+  function walkGraph(startId, dir){
+    const visited = new Set();
+    const stack = [startId];
+    const map = dir === "req" ? graphIndex.reqMap : graphIndex.nextMap;
+    while (stack.length){
+      const id = stack.pop();
+      if (visited.has(id)) continue;
+      visited.add(id);
+      const next = map.get(id);
+      if (!next) continue;
+      for (const n of next) stack.push(n);
+    }
+    return visited;
+  }
+
+  function updateGraphFocus(){
+    const focus = $("focusToggle").checked;
+    const nodes = document.querySelectorAll(".node");
+    const edges = document.querySelectorAll(".edge");
+    nodes.forEach(n => n.classList.remove("dim","selected"));
+    edges.forEach(e => e.classList.remove("dim"));
+    if (!selectedId || !focus) return;
+
+    const reqs = walkGraph(selectedId, "req");
+    const nexts = walkGraph(selectedId, "next");
+    const visible = new Set([...reqs, ...nexts]);
+
+    nodes.forEach(n => {
+      const id = n.dataset.id;
+      if (id === selectedId) n.classList.add("selected");
+      if (!visible.has(id)) n.classList.add("dim");
+    });
+    edges.forEach(e => {
+      const from = e.dataset.from;
+      const to = e.dataset.to;
+      if (!visible.has(from) && !visible.has(to)) e.classList.add("dim");
+    });
+  }
+
+  function setGraphInfo(subject){
+    const info = $("graphInfo");
+    if (!subject){
+      info.textContent = "Seleccioná una materia para ver su camino.";
+      return;
+    }
+    const reqs = subject.req?.length ? subject.req.join(", ") : "—";
+    const status = STATUS_LABEL[state[subject.id] || STATUS.PENDING];
+    const avail = isAvailable(subject) ? "Sí" : "No";
+    info.innerHTML = `<strong>${subject.name}</strong> · ${subject.id} · ${status} · Habilitada: ${avail} · Req: ${reqs}`;
+  }
+
+  function applyZoom(){
+    const inner = $("graphInner");
+    inner.setAttribute("transform", `scale(${zoomLevel})`);
+  }
+
   function colorForStatus(st){
     if (st === STATUS.PASSED) return "rgba(80,255,170,.20)";
     if (st === STATUS.IN_PROGRESS) return "rgba(255,220,120,.20)";
@@ -413,7 +505,9 @@
 
   function renderGraph(){
     const svg = $("graph");
-    svg.innerHTML = "";
+    const inner = $("graphInner");
+    inner.innerHTML = "";
+    buildGraphIndex();
 
     const COL_W = 320;
     const ROW_H = 92;
@@ -430,7 +524,7 @@
       byTerm.get(t).push(s);
     }
     for (const t of terms){
-      byTerm.get(t).sort((a,b)=> a.name.localeCompare(b.name));
+      byTerm.get(t).sort((a,b)=> (a.req?.length || 0) - (b.req?.length || 0) || a.name.localeCompare(b.name));
     }
 
     const pos = new Map();
@@ -450,6 +544,7 @@
     svg.setAttribute("width", String(width));
     svg.setAttribute("height", String(height));
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    applyZoom();
 
     terms.forEach((t,i) => {
       const tx = PAD_X + i * COL_W;
@@ -459,7 +554,7 @@
       text.setAttribute("fill", "rgba(232,238,255,.85)");
       text.setAttribute("font-size","12");
       text.textContent = (t === 999) ? "Sin cuatrimestre" : `Cuatrimestre ${t}`;
-      svg.appendChild(text);
+      inner.appendChild(text);
     });
 
     for (const s of plan){
@@ -479,7 +574,9 @@
         const d = `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`;
         path.setAttribute("d", d);
         path.setAttribute("class", "edge " + (isSatisfied(r) ? "ok" : "bad"));
-        svg.appendChild(path);
+        path.dataset.from = r;
+        path.dataset.to = s.id;
+        inner.appendChild(path);
       }
     }
 
@@ -490,6 +587,7 @@
       const g = document.createElementNS("http://www.w3.org/2000/svg","g");
       g.setAttribute("class","node");
       g.setAttribute("transform", `translate(${p.x},${p.y})`);
+      g.dataset.id = s.id;
 
       const rect = document.createElementNS("http://www.w3.org/2000/svg","rect");
       rect.setAttribute("width", String(NODE_W));
@@ -515,13 +613,28 @@
       g.appendChild(sub);
 
       g.addEventListener("click", () => {
+        selectedId = s.id;
+        setGraphInfo(s);
+        updateGraphFocus();
         $("q").value = s.name;
         activateTab("listView");
         renderAll();
         window.scrollTo({ top: 0, behavior: "smooth" });
       });
 
-      svg.appendChild(g);
+      g.addEventListener("mouseenter", () => {
+        selectedId = s.id;
+        setGraphInfo(s);
+        updateGraphFocus();
+      });
+
+      inner.appendChild(g);
+    }
+
+    if (selectedId){
+      const subject = plan.find(s => s.id === selectedId);
+      setGraphInfo(subject || null);
+      updateGraphFocus();
     }
   }
 
@@ -627,6 +740,20 @@
   document.querySelectorAll(".tab").forEach(btn => {
     btn.addEventListener("click", () => activateTab(btn.dataset.tab));
   });
+
+  $("zoomIn").addEventListener("click", () => {
+    zoomLevel = Math.min(2, +(zoomLevel + 0.1).toFixed(2));
+    applyZoom();
+  });
+  $("zoomOut").addEventListener("click", () => {
+    zoomLevel = Math.max(0.6, +(zoomLevel - 0.1).toFixed(2));
+    applyZoom();
+  });
+  $("zoomReset").addEventListener("click", () => {
+    zoomLevel = 1;
+    applyZoom();
+  });
+  $("focusToggle").addEventListener("change", updateGraphFocus);
 
   $("reset").addEventListener("click", () => {
     if (!confirm("¿Resetear todos los estados a Pendiente?")) return;
