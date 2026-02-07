@@ -1,0 +1,695 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Plan de materias</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    body { margin: 0; background:#0b1020; color:#e8eeff; }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    h1 { margin: 0 0 8px; font-size: 22px; }
+    .sub { opacity:.8; margin: 0 0 18px; }
+    .card { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 14px; }
+    .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+    input, select, button, textarea {
+      background: rgba(255,255,255,.08); color:#e8eeff;
+      border: 1px solid rgba(255,255,255,.14); border-radius: 10px;
+      padding: 10px 12px; outline: none;
+    }
+    input::placeholder, textarea::placeholder { color: rgba(232,238,255,.55); }
+    button { cursor:pointer; }
+    button:hover { background: rgba(255,255,255,.12); }
+    .grid { display:grid; grid-template-columns: 1.2fr .8fr .8fr .8fr; gap:10px; }
+    @media (max-width: 900px){ .grid { grid-template-columns: 1fr; } }
+    .pill { display:inline-flex; align-items:center; gap:8px; padding: 6px 10px; border-radius: 999px; font-size: 12px; border: 1px solid rgba(255,255,255,.14); }
+    .ok { background: rgba(80,255,170,.12); border-color: rgba(80,255,170,.24); }
+    .warn { background: rgba(255,220,120,.12); border-color: rgba(255,220,120,.24); }
+    .bad { background: rgba(255,120,140,.12); border-color: rgba(255,120,140,.24); }
+    .muted { opacity:.75; }
+    .list { margin-top: 14px; display:grid; grid-template-columns: 1fr; gap:10px; }
+    .item { display:flex; gap:12px; justify-content:space-between; align-items:flex-start; }
+    .left { min-width: 0; }
+    .title { font-weight:650; }
+    .meta { font-size: 12px; opacity:.85; margin-top: 4px; }
+    .req { font-size: 12px; opacity:.8; margin-top: 6px; }
+    .req code { background: rgba(255,255,255,.08); padding: 2px 6px; border-radius: 8px; }
+    .right { display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+    .bar { height: 10px; border-radius: 999px; overflow:hidden; background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.12); }
+    .bar > div { height:100%; width:0%; background: linear-gradient(90deg, rgba(80,255,170,.9), rgba(120,190,255,.9)); }
+    .small { font-size:12px; opacity:.8; }
+    .danger { border-color: rgba(255,120,140,.35) !important; }
+    .note { font-size: 12px; opacity:.8; margin-top: 10px; line-height: 1.4; }
+    details { margin-top: 12px; }
+    textarea { width: 100%; min-height: 180px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+
+    .tabs { display:flex; gap:10px; margin-top: 14px; flex-wrap:wrap; }
+    .tab { padding: 8px 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06); cursor:pointer; }
+    .tab.active { background: rgba(255,255,255,.14); }
+    .view { margin-top: 12px; display:none; }
+    .view.active { display:block; }
+
+    .graphWrap { height: 560px; overflow:auto; border-radius: 14px; border:1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04); }
+    svg { display:block; }
+    .node { cursor:pointer; }
+    .node rect { rx: 12; ry: 12; }
+    .node text { font-size: 12px; pointer-events:none; }
+    .edge { stroke: rgba(232,238,255,.25); stroke-width: 1.2; fill: none; }
+    .edge.ok { stroke: rgba(80,255,170,.45); }
+    .edge.bad { stroke: rgba(255,120,140,.45); }
+    .legend { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+    .legend span { font-size:12px; opacity:.85; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Plan de materias</h1>
+    <p class="sub">Tracker + correlativas + progreso + árbol. Electivas: se requieren <b>2</b>.</p>
+
+    <div class="card">
+      <div class="grid">
+        <div>
+          <div class="small muted">Buscar</div>
+          <input id="q" placeholder="Ej: Redes, Seguridad, Base de datos..." />
+        </div>
+        <div>
+          <div class="small muted">Filtro</div>
+          <select id="filter">
+            <option value="all">Todas</option>
+            <option value="available">Puedo cursar ahora</option>
+            <option value="blocked">Bloqueadas (faltan correlativas)</option>
+            <option value="pending">Pendientes</option>
+            <option value="in_progress">Cursando</option>
+            <option value="passed">Aprobadas</option>
+            <option value="electives">Electivas</option>
+          </select>
+        </div>
+        <div>
+          <div class="small muted">Agrupar</div>
+          <select id="groupBy">
+            <option value="none">Sin agrupar</option>
+            <option value="term">Por cuatrimestre</option>
+          </select>
+        </div>
+        <div>
+          <div class="small muted">Acciones</div>
+          <div class="row">
+            <button id="reloadPlan">Recargar plan.json</button>
+            <button id="loadStateBtn">Cargar state.json</button>
+            <button id="reset">Reset progreso</button>
+            <button id="export">Export JSON</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:14px" class="row">
+        <span class="pill ok"><b id="passedCount">0</b> Aprobadas</span>
+        <span class="pill warn"><b id="inprogCount">0</b> Cursando</span>
+        <span class="pill bad"><b id="pendingCount">0</b> Pendientes</span>
+        <span class="pill"><b id="availCount">0</b> Habilitadas</span>
+
+        <span class="pill" id="electivePill">🎓 Electivas: 0/2</span>
+
+        <div style="flex:1; min-width:260px">
+          <div class="small muted">Progreso</div>
+          <div class="bar"><div id="barFill"></div></div>
+          <div class="small" id="progressText" style="margin-top:6px"></div>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <button class="tab active" data-tab="listView">📋 Lista</button>
+        <button class="tab" data-tab="graphView">🌳 Árbol</button>
+      </div>
+
+      <div id="listView" class="view active">
+        <div id="list" class="list"></div>
+      </div>
+
+      <div id="graphView" class="view">
+        <div class="row" style="margin-bottom:10px">
+          <span class="pill ok">Aprobada</span>
+          <span class="pill warn">Cursando</span>
+          <span class="pill bad">Pendiente</span>
+          <span class="pill">Borde verde = habilitada</span>
+          <span class="pill">Electivas siempre habilitadas</span>
+        </div>
+        <div class="graphWrap">
+          <svg id="graph" width="1400" height="900" viewBox="0 0 1400 900"></svg>
+        </div>
+        <div class="legend">
+          <span>Tip: clic en un nodo = lo busca en la lista.</span>
+        </div>
+      </div>
+
+      <details>
+        <summary>📥 Importar plan: plan.json / pegar JSON / archivo</summary>
+        <p class="note">
+          Ideal: guardá <code>plan.json</code> (y opcional <code>state.json</code>) en la misma carpeta y abrí con un server local.
+        </p>
+
+        <div class="row">
+          <input type="file" id="filePlan" accept="application/json" />
+          <button id="loadFromFile">Cargar archivo plan (.json)</button>
+          <button id="pasteLoad">Cargar plan desde textarea</button>
+        </div>
+
+        <textarea id="planEditor" placeholder='Pegá tu plan JSON (array) acá...'></textarea>
+      </details>
+
+      <details>
+        <summary>✅ Importar materias aprobadas (por nombre, una por línea)</summary>
+        <textarea id="approvedEditor" placeholder="Ej:\nÁLGEBRA Y GEOMETRÍA\nBASE DE DATOS I\n..."></textarea>
+        <div class="row" style="margin-top:10px">
+          <button id="applyApproved">Aplicar aprobadas</button>
+        </div>
+      </details>
+
+      <p class="note">
+        Si abrís con doble click y no te carga plan.json/state.json, usá:<br/>
+        <code>python3 -m http.server 8000</code> y entrá a <code>http://localhost:8000</code>
+      </p>
+    </div>
+  </div>
+
+<script>
+  const KEY_PLAN = "plan_v3";
+  const KEY_STATE = "state_v3";
+
+  const STATUS = { PENDING:"pending", IN_PROGRESS:"in_progress", PASSED:"passed" };
+  const STATUS_LABEL = { pending:"Pendiente", in_progress:"Cursando", passed:"Aprobada" };
+
+  const ELECTIVE_GROUP = "ELECTIVAS";
+  const ELECTIVE_REQUIRED = 2;
+
+  const $ = (id) => document.getElementById(id);
+
+  function savePlan(plan){ localStorage.setItem(KEY_PLAN, JSON.stringify(plan)); }
+  function loadPlanFromStorage(){
+    const saved = localStorage.getItem(KEY_PLAN);
+    if (!saved) return null;
+    try { return JSON.parse(saved); } catch { return null; }
+  }
+  function saveState(state){ localStorage.setItem(KEY_STATE, JSON.stringify(state)); }
+  function loadStateFromStorage(){
+    const saved = localStorage.getItem(KEY_STATE);
+    if (!saved) return null;
+    try { return JSON.parse(saved); } catch { return null; }
+  }
+
+  function normalizeName(s){
+    return (s||"")
+      .toLowerCase()
+      .normalize("NFD").replace(/\p{Diacritic}/gu, "")
+      .replace(/\s+/g," ")
+      .trim();
+  }
+
+  let plan = [];
+  let state = {};
+
+  function ensureState(plan, previousState){
+    const st = {};
+    for (const s of plan) st[s.id] = previousState?.[s.id] || STATUS.PENDING;
+    return st;
+  }
+
+  function isSatisfied(id){ return state[id] === STATUS.PASSED; }
+
+  function electiveProgress(){
+    const electives = plan.filter(s => s.group === ELECTIVE_GROUP);
+    const passed = electives.filter(s => state[s.id] === STATUS.PASSED).length;
+    return { passed, required: ELECTIVE_REQUIRED, ok: passed >= ELECTIVE_REQUIRED };
+  }
+
+  function isAvailable(subject){
+    const req = subject.req || [];
+
+    // Electivas: siempre se pueden cursar
+    if (subject.group === ELECTIVE_GROUP) return true;
+
+    // Correlativas normales
+    if (!req.every(isSatisfied)) return false;
+
+    // Requisito adicional: electivas (ej: seminario final)
+    if (subject.reqElectives) {
+      return electiveProgress().ok;
+    }
+
+    return true;
+  }
+
+  function setCounts(){
+    const total = plan.length || 0;
+    const vals = Object.values(state);
+    const passed = vals.filter(v => v === STATUS.PASSED).length;
+    const inprog = vals.filter(v => v === STATUS.IN_PROGRESS).length;
+    const pending = total - passed - inprog;
+    const avail = plan.filter(s => state[s.id] !== STATUS.PASSED && isAvailable(s)).length;
+
+    $("passedCount").textContent = passed;
+    $("inprogCount").textContent = inprog;
+    $("pendingCount").textContent = pending;
+    $("availCount").textContent = avail;
+
+    const pct = total ? Math.round((passed / total) * 100) : 0;
+    $("barFill").style.width = pct + "%";
+    $("progressText").textContent = `${passed}/${total} aprobadas (${pct}%)`;
+
+    const ep = electiveProgress();
+    $("electivePill").textContent = `🎓 Electivas: ${ep.passed}/${ep.required} ${ep.ok ? "✅" : "⛔"}`;
+    $("electivePill").className = "pill " + (ep.ok ? "ok" : "bad");
+  }
+
+  function subjectBadge(subject){
+    const st = state[subject.id] || STATUS.PENDING;
+    const avail = isAvailable(subject) && st !== STATUS.PASSED;
+
+    const pill1 = document.createElement("span");
+    pill1.className = "pill " + (st === STATUS.PASSED ? "ok" : st === STATUS.IN_PROGRESS ? "warn" : "bad");
+    pill1.textContent = STATUS_LABEL[st];
+
+    const pill2 = document.createElement("span");
+    pill2.className = "pill " + (avail ? "ok" : "danger");
+    pill2.textContent = avail ? "Habilitada" : "Bloqueada";
+
+    return [pill1, pill2];
+  }
+
+  function makeItem(s){
+    const st = state[s.id] || STATUS.PENDING;
+    const avail = isAvailable(s);
+
+    const wrap = document.createElement("div");
+    wrap.className = "card item";
+
+    const left = document.createElement("div");
+    left.className = "left";
+
+    const title = document.createElement("div");
+    title.className = "title";
+    title.textContent = `${s.name} (${s.id})` + (s.group === ELECTIVE_GROUP ? " · (Electiva)" : "");
+
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = `Cuatrimestre: ${s.term ?? "-"} · Correlativas: ${(s.req && s.req.length) ? s.req.join(", ") : "—"}`;
+
+    const req = document.createElement("div");
+    req.className = "req";
+    if (s.req && s.req.length){
+      const missing = s.req.filter(r => !isSatisfied(r));
+      if (missing.length){
+        req.innerHTML = `Te falta: ${missing.map(x => `<code>${x}</code>`).join(" ")}`;
+      } else {
+        req.textContent = "Correlativas OK ✅";
+      }
+    } else {
+      req.textContent = "Sin correlativas";
+    }
+
+    if (s.reqElectives){
+      const ep = electiveProgress();
+      const extra = document.createElement("div");
+      extra.className = "req";
+      extra.innerHTML = `Requiere electivas: <code>${ep.passed}/${ep.required}</code> ${ep.ok ? "✅" : "⛔"}`;
+      left.appendChild(extra);
+    }
+
+    left.appendChild(title);
+    left.appendChild(meta);
+    left.appendChild(req);
+
+    const right = document.createElement("div");
+    right.className = "right";
+    const [b1,b2] = subjectBadge(s);
+    right.appendChild(b1);
+    right.appendChild(b2);
+
+    const sel = document.createElement("select");
+    for (const k of Object.keys(STATUS)){
+      const val = STATUS[k];
+      const opt = document.createElement("option");
+      opt.value = val;
+      opt.textContent = STATUS_LABEL[val];
+      sel.appendChild(opt);
+    }
+    sel.value = st;
+    sel.addEventListener("change", () => {
+      state[s.id] = sel.value;
+      saveState(state);
+      renderAll();
+    });
+
+    if (!avail && st !== STATUS.PASSED && s.group !== ELECTIVE_GROUP) sel.classList.add("danger");
+
+    right.appendChild(sel);
+
+    wrap.appendChild(left);
+    wrap.appendChild(right);
+    return wrap;
+  }
+
+  function renderList(){
+    const q = $("q").value.trim().toLowerCase();
+    const filter = $("filter").value;
+    const groupBy = $("groupBy").value;
+
+    let items = plan
+      .filter(s => !q || (s.name + " " + s.id).toLowerCase().includes(q))
+      .filter(s => {
+        const st = state[s.id] || STATUS.PENDING;
+        const avail = isAvailable(s);
+
+        if (filter === "all") return true;
+        if (filter === "available") return st !== STATUS.PASSED && avail;
+        if (filter === "blocked") return st !== STATUS.PASSED && !avail;
+        if (filter === "pending") return st === STATUS.PENDING;
+        if (filter === "in_progress") return st === STATUS.IN_PROGRESS;
+        if (filter === "passed") return st === STATUS.PASSED;
+        if (filter === "electives") return s.group === ELECTIVE_GROUP;
+        return true;
+      });
+
+    items.sort((a,b) => (a.term ?? 999) - (b.term ?? 999) || a.name.localeCompare(b.name));
+
+    const list = $("list");
+    list.innerHTML = "";
+
+    if (groupBy === "term"){
+      const byTerm = new Map();
+      for (const s of items){
+        const t = s.term ?? 999;
+        if (!byTerm.has(t)) byTerm.set(t, []);
+        byTerm.get(t).push(s);
+      }
+      const terms = Array.from(byTerm.keys()).sort((a,b)=>a-b);
+      for (const t of terms){
+        const h = document.createElement("div");
+        h.style.marginTop = "14px";
+        h.style.opacity = ".9";
+        h.style.fontWeight = "700";
+        h.textContent = t === 999 ? "Sin cuatrimestre" : `Cuatrimestre ${t}`;
+        list.appendChild(h);
+
+        for (const s of byTerm.get(t)) list.appendChild(makeItem(s));
+      }
+    } else {
+      for (const s of items) list.appendChild(makeItem(s));
+    }
+  }
+
+  function colorForStatus(st){
+    if (st === STATUS.PASSED) return "rgba(80,255,170,.20)";
+    if (st === STATUS.IN_PROGRESS) return "rgba(255,220,120,.20)";
+    return "rgba(255,120,140,.18)";
+  }
+  function strokeForNode(subject){
+    const st = state[subject.id] || STATUS.PENDING;
+    if (st === STATUS.PASSED) return "rgba(80,255,170,.55)";
+    if (st === STATUS.IN_PROGRESS) return "rgba(255,220,120,.55)";
+    if (subject.group === ELECTIVE_GROUP) return "rgba(120,190,255,.55)";
+    return isAvailable(subject) ? "rgba(80,255,170,.55)" : "rgba(255,120,140,.55)";
+  }
+
+  function renderGraph(){
+    const svg = $("graph");
+    svg.innerHTML = "";
+
+    const COL_W = 320;
+    const ROW_H = 92;
+    const PAD_X = 30;
+    const PAD_Y = 30;
+    const NODE_W = 280;
+    const NODE_H = 60;
+
+    const terms = Array.from(new Set(plan.map(s => s.term ?? 999))).sort((a,b)=>a-b);
+    const byTerm = new Map();
+    for (const t of terms) byTerm.set(t, []);
+    for (const s of plan){
+      const t = s.term ?? 999;
+      byTerm.get(t).push(s);
+    }
+    for (const t of terms){
+      byTerm.get(t).sort((a,b)=> a.name.localeCompare(b.name));
+    }
+
+    const pos = new Map();
+    let maxRows = 0;
+    terms.forEach((t, i) => {
+      const arr = byTerm.get(t);
+      maxRows = Math.max(maxRows, arr.length);
+      arr.forEach((s, r) => {
+        const x = PAD_X + i * COL_W;
+        const y = PAD_Y + r * ROW_H;
+        pos.set(s.id, {x,y});
+      });
+    });
+
+    const width = PAD_X + terms.length * COL_W + PAD_X;
+    const height = PAD_Y + maxRows * ROW_H + PAD_Y;
+    svg.setAttribute("width", String(width));
+    svg.setAttribute("height", String(height));
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+    terms.forEach((t,i) => {
+      const tx = PAD_X + i * COL_W;
+      const text = document.createElementNS("http://www.w3.org/2000/svg","text");
+      text.setAttribute("x", tx + 6);
+      text.setAttribute("y", 18);
+      text.setAttribute("fill", "rgba(232,238,255,.85)");
+      text.setAttribute("font-size","12");
+      text.textContent = (t === 999) ? "Sin cuatrimestre" : `Cuatrimestre ${t}`;
+      svg.appendChild(text);
+    });
+
+    for (const s of plan){
+      const fromIds = s.req || [];
+      for (const r of fromIds){
+        const a = pos.get(r);
+        const b = pos.get(s.id);
+        if (!a || !b) continue;
+
+        const x1 = a.x + NODE_W;
+        const y1 = a.y + NODE_H/2;
+        const x2 = b.x;
+        const y2 = b.y + NODE_H/2;
+        const mid = (x1 + x2) / 2;
+
+        const path = document.createElementNS("http://www.w3.org/2000/svg","path");
+        const d = `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`;
+        path.setAttribute("d", d);
+        path.setAttribute("class", "edge " + (isSatisfied(r) ? "ok" : "bad"));
+        svg.appendChild(path);
+      }
+    }
+
+    for (const s of plan){
+      const p = pos.get(s.id);
+      if (!p) continue;
+
+      const g = document.createElementNS("http://www.w3.org/2000/svg","g");
+      g.setAttribute("class","node");
+      g.setAttribute("transform", `translate(${p.x},${p.y})`);
+
+      const rect = document.createElementNS("http://www.w3.org/2000/svg","rect");
+      rect.setAttribute("width", String(NODE_W));
+      rect.setAttribute("height", String(NODE_H));
+      rect.setAttribute("fill", colorForStatus(state[s.id] || STATUS.PENDING));
+      rect.setAttribute("stroke", strokeForNode(s));
+      rect.setAttribute("stroke-width","1.6");
+      g.appendChild(rect);
+
+      const name = document.createElementNS("http://www.w3.org/2000/svg","text");
+      name.setAttribute("x","12");
+      name.setAttribute("y","24");
+      name.setAttribute("fill","rgba(232,238,255,.92)");
+      const label = (s.group === ELECTIVE_GROUP ? "★ " : "") + s.name;
+      name.textContent = label.length > 34 ? label.slice(0,34) + "…" : label;
+      g.appendChild(name);
+
+      const sub = document.createElementNS("http://www.w3.org/2000/svg","text");
+      sub.setAttribute("x","12");
+      sub.setAttribute("y","44");
+      sub.setAttribute("fill","rgba(232,238,255,.72)");
+      sub.textContent = `${s.id} · ${(s.req?.length ? "req: "+s.req.length : "sin req")}`;
+      g.appendChild(sub);
+
+      g.addEventListener("click", () => {
+        $("q").value = s.name;
+        activateTab("listView");
+        renderAll();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+
+      svg.appendChild(g);
+    }
+  }
+
+  function activateTab(tabId){
+    document.querySelectorAll(".tab").forEach(b => b.classList.toggle("active", b.dataset.tab === tabId));
+    document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === tabId));
+  }
+
+  function validatePlan(arr){
+    if (!Array.isArray(arr)) throw new Error("El plan JSON debe ser un array.");
+    const ids = new Set();
+    for (const s of arr){
+      if (!s.id || !s.name) throw new Error("Cada materia debe tener id y name.");
+      if (ids.has(s.id)) throw new Error("ID duplicado: " + s.id);
+      ids.add(s.id);
+      if (s.req && !Array.isArray(s.req)) throw new Error("req debe ser array en " + s.id);
+    }
+    return true;
+  }
+
+  function applyPlan(newPlan){
+    validatePlan(newPlan);
+    plan = newPlan;
+    savePlan(plan);
+
+    const prev = loadStateFromStorage() || state || {};
+    state = ensureState(plan, prev);
+    saveState(state);
+
+    renderAll();
+  }
+
+  async function loadPlanJson(){
+    try {
+      const res = await fetch("./plan.json", { cache:"no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      applyPlan(data);
+      return { ok:true, via:"fetch plan.json" };
+    } catch (e) {
+      const local = loadPlanFromStorage();
+      if (local){
+        applyPlan(local);
+        return { ok:true, via:"localStorage" };
+      }
+      return { ok:false, error: String(e) };
+    }
+  }
+
+  async function loadStateJson(){
+    try {
+      const res = await fetch("./state.json", { cache:"no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      // merge into existing state, keep only known ids
+      const merged = ensureState(plan, {});
+      for (const [k,v] of Object.entries(data)){
+        if (merged[k] !== undefined) merged[k] = v;
+      }
+      state = merged;
+      saveState(state);
+      renderAll();
+      alert("State cargado ✅ (state.json)");
+    } catch (e) {
+      alert("No pude cargar state.json.\nAbrí con server local (python3 -m http.server 8000).\nDetalle: " + e);
+    }
+  }
+
+  function applyApprovedList(text){
+    const lines = text.split("\n").map(x => x.trim()).filter(Boolean);
+    if (!lines.length) return;
+
+    const targets = new Set(lines.map(normalizeName));
+    let count = 0;
+    for (const s of plan){
+      if (targets.has(normalizeName(s.name))){
+        state[s.id] = STATUS.PASSED;
+        count++;
+      }
+    }
+    saveState(state);
+    renderAll();
+    alert(`Listo ✅ Marcadas como aprobadas: ${count}`);
+  }
+
+  async function exportJson(){
+    const payload = { plan, state };
+    const txt = JSON.stringify(payload, null, 2);
+    await navigator.clipboard.writeText(txt);
+    alert("Copiado al portapapeles: {plan, state}");
+  }
+
+  function renderAll(){
+    setCounts();
+    renderList();
+    renderGraph();
+  }
+
+  $("q").addEventListener("input", renderAll);
+  $("filter").addEventListener("change", renderAll);
+  $("groupBy").addEventListener("change", renderAll);
+
+  document.querySelectorAll(".tab").forEach(btn => {
+    btn.addEventListener("click", () => activateTab(btn.dataset.tab));
+  });
+
+  $("reset").addEventListener("click", () => {
+    if (!confirm("¿Resetear todos los estados a Pendiente?")) return;
+    state = ensureState(plan, {});
+    saveState(state);
+    renderAll();
+  });
+
+  $("export").addEventListener("click", exportJson);
+
+  $("pasteLoad").addEventListener("click", () => {
+    const txt = $("planEditor").value.trim();
+    if (!txt) return alert("Pegá tu JSON primero.");
+    try {
+      const data = JSON.parse(txt);
+      applyPlan(data);
+      alert("Plan cargado ✅ (desde textarea)");
+    } catch (e) {
+      alert("Error: " + e.message);
+    }
+  });
+
+  $("loadFromFile").addEventListener("click", async () => {
+    const file = $("filePlan").files?.[0];
+    if (!file) return alert("Elegí un archivo .json primero.");
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      applyPlan(data);
+      alert("Plan cargado ✅ (desde archivo)");
+    } catch (e) {
+      alert("Error: " + e.message);
+    }
+  });
+
+  $("applyApproved").addEventListener("click", () => {
+    applyApprovedList($("approvedEditor").value || "");
+  });
+
+  $("reloadPlan").addEventListener("click", async () => {
+    const r = await loadPlanJson();
+    if (r.ok) alert("Plan recargado ✅ (" + r.via + ")");
+    else alert("No pude cargar plan.json.\nAbrí con server local.\nDetalle: " + r.error);
+  });
+
+  $("loadStateBtn").addEventListener("click", loadStateJson);
+
+  (async function init(){
+    const r = await loadPlanJson();
+    if (!r.ok){
+      plan = loadPlanFromStorage() || [];
+      if (!plan.length){
+        plan = [
+          { id:"DEMO-1", name:"Ejemplo: Materia A", term:1, req:[] },
+          { id:"DEMO-2", name:"Ejemplo: Materia B", term:2, req:["DEMO-1"] }
+        ];
+        savePlan(plan);
+      }
+    }
+    state = ensureState(plan, loadStateFromStorage() || {});
+    saveState(state);
+    renderAll();
+  })();
+</script>
+</body>
+</html>
