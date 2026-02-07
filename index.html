@@ -54,7 +54,7 @@
     .node { cursor:pointer; }
     .node rect { rx: 12; ry: 12; }
     .node text { font-size: 12px; pointer-events:none; }
-    .edge { stroke: rgba(232,238,255,.25); stroke-width: 1.2; fill: none; }
+    .edge { stroke: rgba(232,238,255,.25); stroke-width: 1.2; fill: none; marker-end: url(#arrow); }
     .edge.ok { stroke: rgba(80,255,170,.45); }
     .edge.bad { stroke: rgba(255,120,140,.45); }
     .legend { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
@@ -64,6 +64,11 @@
     .graphInfo strong { font-weight:650; }
     .node.dim rect, .edge.dim { opacity:.18; }
     .node.selected rect { stroke: rgba(120,190,255,.9); stroke-width: 2.4; }
+    .node.optional rect { stroke: rgba(180,190,210,.45); }
+    .node.optional text { opacity:.7; }
+    .termBand { fill: rgba(255,255,255,.02); }
+    .termLabel { font-size: 12px; fill: rgba(232,238,255,.85); }
+    .nodeShadow { filter: url(#nodeShadow); }
   </style>
 </head>
 <body>
@@ -146,6 +151,7 @@
           <span class="pill ok">Aprobada</span>
           <span class="pill warn">Cursando</span>
           <span class="pill bad">Pendiente</span>
+          <span class="pill">No requerida</span>
           <span class="pill">Borde verde = habilitada</span>
           <span class="pill">Electivas siempre habilitadas</span>
         </div>
@@ -193,8 +199,8 @@
   const KEY_PLAN = "plan_v3";
   const KEY_STATE = "state_v3";
 
-  const STATUS = { PENDING:"pending", IN_PROGRESS:"in_progress", PASSED:"passed" };
-  const STATUS_LABEL = { pending:"Pendiente", in_progress:"Cursando", passed:"Aprobada" };
+  const STATUS = { PENDING:"pending", IN_PROGRESS:"in_progress", PASSED:"passed", WAIVED:"waived" };
+  const STATUS_LABEL = { pending:"Pendiente", in_progress:"Cursando", passed:"Aprobada", waived:"No requerida" };
 
   const ELECTIVE_GROUP = "ELECTIVAS";
   const ELECTIVE_REQUIRED = 2;
@@ -242,6 +248,13 @@
     return { passed, required: ELECTIVE_REQUIRED, ok: passed >= ELECTIVE_REQUIRED };
   }
 
+  function isWaivedElective(subject){
+    if (subject.group !== ELECTIVE_GROUP) return false;
+    const st = state[subject.id] || STATUS.PENDING;
+    if (st === STATUS.PASSED || st === STATUS.IN_PROGRESS) return false;
+    return electiveProgress().ok;
+  }
+
   function isAvailable(subject){
     const req = subject.req || [];
 
@@ -260,12 +273,18 @@
   }
 
   function setCounts(){
-    const total = plan.length || 0;
-    const vals = Object.values(state);
-    const passed = vals.filter(v => v === STATUS.PASSED).length;
-    const inprog = vals.filter(v => v === STATUS.IN_PROGRESS).length;
+    const waivedElectives = plan.filter(isWaivedElective).length;
+    const total = (plan.length || 0) - waivedElectives;
+    let passed = 0;
+    let inprog = 0;
+    for (const s of plan){
+      if (isWaivedElective(s)) continue;
+      const st = state[s.id] || STATUS.PENDING;
+      if (st === STATUS.PASSED) passed++;
+      if (st === STATUS.IN_PROGRESS) inprog++;
+    }
     const pending = total - passed - inprog;
-    const avail = plan.filter(s => state[s.id] !== STATUS.PASSED && isAvailable(s)).length;
+    const avail = plan.filter(s => !isWaivedElective(s) && state[s.id] !== STATUS.PASSED && isAvailable(s)).length;
 
     $("passedCount").textContent = passed;
     $("inprogCount").textContent = inprog;
@@ -283,21 +302,23 @@
 
   function subjectBadge(subject){
     const st = state[subject.id] || STATUS.PENDING;
-    const avail = isAvailable(subject) && st !== STATUS.PASSED;
+    const waived = isWaivedElective(subject);
+    const avail = isAvailable(subject) && st !== STATUS.PASSED && !waived;
 
     const pill1 = document.createElement("span");
-    pill1.className = "pill " + (st === STATUS.PASSED ? "ok" : st === STATUS.IN_PROGRESS ? "warn" : "bad");
-    pill1.textContent = STATUS_LABEL[st];
+    pill1.className = "pill " + (st === STATUS.PASSED ? "ok" : st === STATUS.IN_PROGRESS ? "warn" : waived ? "" : "bad");
+    pill1.textContent = waived ? STATUS_LABEL.waived : STATUS_LABEL[st];
 
     const pill2 = document.createElement("span");
-    pill2.className = "pill " + (avail ? "ok" : "danger");
-    pill2.textContent = avail ? "Habilitada" : "Bloqueada";
+    pill2.className = "pill " + (avail ? "ok" : waived ? "" : "danger");
+    pill2.textContent = waived ? "No requerida" : (avail ? "Habilitada" : "Bloqueada");
 
     return [pill1, pill2];
   }
 
   function makeItem(s){
     const st = state[s.id] || STATUS.PENDING;
+    const waived = isWaivedElective(s);
     const avail = isAvailable(s);
 
     const wrap = document.createElement("div");
@@ -338,6 +359,12 @@
     left.appendChild(title);
     left.appendChild(meta);
     left.appendChild(req);
+    if (waived){
+      const extra = document.createElement("div");
+      extra.className = "req";
+      extra.textContent = "Electiva no requerida (ya cumpliste el mínimo).";
+      left.appendChild(extra);
+    }
 
     const right = document.createElement("div");
     right.className = "right";
@@ -348,6 +375,7 @@
     const sel = document.createElement("select");
     for (const k of Object.keys(STATUS)){
       const val = STATUS[k];
+      if (val === STATUS.WAIVED) continue;
       const opt = document.createElement("option");
       opt.value = val;
       opt.textContent = STATUS_LABEL[val];
@@ -360,7 +388,11 @@
       renderAll();
     });
 
-    if (!avail && st !== STATUS.PASSED && s.group !== ELECTIVE_GROUP) sel.classList.add("danger");
+    if (waived){
+      sel.disabled = true;
+    } else if (!avail && st !== STATUS.PASSED && s.group !== ELECTIVE_GROUP) {
+      sel.classList.add("danger");
+    }
 
     right.appendChild(sel);
 
@@ -379,11 +411,12 @@
       .filter(s => {
         const st = state[s.id] || STATUS.PENDING;
         const avail = isAvailable(s);
+        const waived = isWaivedElective(s);
 
         if (filter === "all") return true;
-        if (filter === "available") return st !== STATUS.PASSED && avail;
-        if (filter === "blocked") return st !== STATUS.PASSED && !avail;
-        if (filter === "pending") return st === STATUS.PENDING;
+        if (filter === "available") return st !== STATUS.PASSED && !waived && avail;
+        if (filter === "blocked") return st !== STATUS.PASSED && !waived && !avail;
+        if (filter === "pending") return st === STATUS.PENDING && !waived;
         if (filter === "in_progress") return st === STATUS.IN_PROGRESS;
         if (filter === "passed") return st === STATUS.PASSED;
         if (filter === "electives") return s.group === ELECTIVE_GROUP;
@@ -479,10 +512,12 @@
       info.textContent = "Seleccioná una materia para ver su camino.";
       return;
     }
+    const waived = isWaivedElective(subject);
     const reqs = subject.req?.length ? subject.req.join(", ") : "—";
     const status = STATUS_LABEL[state[subject.id] || STATUS.PENDING];
-    const avail = isAvailable(subject) ? "Sí" : "No";
-    info.innerHTML = `<strong>${subject.name}</strong> · ${subject.id} · ${status} · Habilitada: ${avail} · Req: ${reqs}`;
+    const avail = !waived && isAvailable(subject) ? "Sí" : "No";
+    const statusLabel = waived ? STATUS_LABEL.waived : status;
+    info.innerHTML = `<strong>${subject.name}</strong> · ${subject.id} · ${statusLabel} · Habilitada: ${avail} · Req: ${reqs}`;
   }
 
   function applyZoom(){
@@ -497,6 +532,7 @@
   }
   function strokeForNode(subject){
     const st = state[subject.id] || STATUS.PENDING;
+    if (isWaivedElective(subject)) return "rgba(180,190,210,.45)";
     if (st === STATUS.PASSED) return "rgba(80,255,170,.55)";
     if (st === STATUS.IN_PROGRESS) return "rgba(255,220,120,.55)";
     if (subject.group === ELECTIVE_GROUP) return "rgba(120,190,255,.55)";
@@ -546,13 +582,31 @@
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
     applyZoom();
 
+    const defs = document.createElementNS("http://www.w3.org/2000/svg","defs");
+    defs.innerHTML = `
+      <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 Z" fill="rgba(232,238,255,.45)"></path>
+      </marker>
+      <filter id="nodeShadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="rgba(0,0,0,.45)"/>
+      </filter>
+    `;
+    svg.appendChild(defs);
+
     terms.forEach((t,i) => {
       const tx = PAD_X + i * COL_W;
+      const band = document.createElementNS("http://www.w3.org/2000/svg","rect");
+      band.setAttribute("x", tx - 12);
+      band.setAttribute("y", 0);
+      band.setAttribute("width", String(COL_W - 8));
+      band.setAttribute("height", String(height));
+      band.setAttribute("class", "termBand");
+      inner.appendChild(band);
+
       const text = document.createElementNS("http://www.w3.org/2000/svg","text");
       text.setAttribute("x", tx + 6);
-      text.setAttribute("y", 18);
-      text.setAttribute("fill", "rgba(232,238,255,.85)");
-      text.setAttribute("font-size","12");
+      text.setAttribute("y", 22);
+      text.setAttribute("class", "termLabel");
       text.textContent = (t === 999) ? "Sin cuatrimestre" : `Cuatrimestre ${t}`;
       inner.appendChild(text);
     });
@@ -592,9 +646,13 @@
       const rect = document.createElementNS("http://www.w3.org/2000/svg","rect");
       rect.setAttribute("width", String(NODE_W));
       rect.setAttribute("height", String(NODE_H));
-      rect.setAttribute("fill", colorForStatus(state[s.id] || STATUS.PENDING));
+      const fillColor = isWaivedElective(s)
+        ? "rgba(180,190,210,.12)"
+        : colorForStatus(state[s.id] || STATUS.PENDING);
+      rect.setAttribute("fill", fillColor);
       rect.setAttribute("stroke", strokeForNode(s));
       rect.setAttribute("stroke-width","1.6");
+      rect.setAttribute("class", "nodeShadow");
       g.appendChild(rect);
 
       const name = document.createElementNS("http://www.w3.org/2000/svg","text");
@@ -602,7 +660,8 @@
       name.setAttribute("y","24");
       name.setAttribute("fill","rgba(232,238,255,.92)");
       const label = (s.group === ELECTIVE_GROUP ? "★ " : "") + s.name;
-      name.textContent = label.length > 34 ? label.slice(0,34) + "…" : label;
+      const labelMain = label.length > 38 ? label.slice(0,38) + "…" : label;
+      name.textContent = labelMain;
       g.appendChild(name);
 
       const sub = document.createElementNS("http://www.w3.org/2000/svg","text");
@@ -628,6 +687,7 @@
         updateGraphFocus();
       });
 
+      if (isWaivedElective(s)) g.classList.add("optional");
       inner.appendChild(g);
     }
 
