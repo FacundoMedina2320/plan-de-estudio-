@@ -1,0 +1,35 @@
+{
+  "ING-APRENDER21": "passed",
+  "ING-TEC-HUM": "passed",
+
+  "C1-ALG-GEO": "passed",
+  "C1-INTRO-ALG": "passed",
+  "C1-INTRO-TIC": "passed",
+  "C1-LOGICA": "passed",
+  "C1-SI": "passed",
+
+  "C2-ANAL-MAT": "passed",
+  "C2-ARQ-COMP": "passed",
+  "C2-ESTAD": "passed",
+  "C2-FISICA": "passed",
+  "C2-POO": "passed",
+
+  "C3-BD1": "passed",
+  "C3-INNOV": "passed",
+  "C3-INTRO-INFRA": "passed",
+
+  "C4-BD2": "passed",
+  "C4-COMUNIC": "passed",
+  "C4-LEG-PROY": "passed",
+
+  "C5-ORATORIA": "passed",
+
+  "C6-GRUPO-LID": "passed",
+  "C6-SIMUL": "passed",
+
+  "C8-DES-EMP": "passed",
+  "C8-EMPR-UNI": "passed",
+  "C8-GEST-PROY-INFRA": "passed",
+  "C8-BI": "passed",
+  "C8-RIESGO-ELEC": "passed"
+}
